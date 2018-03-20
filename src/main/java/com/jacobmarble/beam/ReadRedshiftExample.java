@@ -22,10 +22,8 @@ import org.apache.beam.sdk.PipelineResult.State;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.aws.redshift.Redshift;
 import org.apache.beam.sdk.io.aws.redshift.Redshift.DataSourceConfiguration;
-import org.apache.beam.sdk.io.aws.redshift.Redshift.Read;
-import org.apache.beam.sdk.io.aws.redshift.Redshift.RedshiftMarshaller;
+import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
-import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -33,52 +31,29 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Example of a pipeline that reads/writes to Redshift.
+ * Example of a pipeline that reads from Redshift.
  */
 public class ReadRedshiftExample {
 
   private static final Logger LOG = LoggerFactory.getLogger(ReadRedshiftExample.class);
 
-  interface RedshiftExampleOptions extends PipelineOptions {
-
-    @Description("S3 temp location prefix, as in s3://bucket/path/")
-    String getS3TempLocationPrefix();
-    void setS3TempLocationPrefix(String value);
-
-    @Description("Redshift cluster endpoint URL")
-    String getRedshiftEndpoint();
-    void setRedshiftEndpoint(String value);
-
-    @Description("Redshift cluster port number")
-    int getRedshiftPort();
-    void setRedshiftPort(int value);
-
-    @Description("Redshift database")
-    String getRedshiftDatabase();
-    void setRedshiftDatabase(String value);
-
-    @Description("Redshift cluster username")
-    String getRedshiftUser();
-    void setRedshiftUser(String value);
-
-    @Description("Redshift cluster password")
-    String getRedshiftPassword();
-    void setRedshiftPassword(String value);
+  interface ReadRedshiftExampleOptions extends RedshiftExampleOptions {
 
     @Description("Redshift read query")
+    @Default.String("SELECT foo, bar FROM schema.table LIMIT 10")
     String getRedshiftReadQuery();
     void setRedshiftReadQuery(String value);
   }
 
   public static void main(String[] args) {
-    PipelineOptionsFactory.register(RedshiftExampleOptions.class);
-    RedshiftExampleOptions options = PipelineOptionsFactory
+    PipelineOptionsFactory.register(ReadRedshiftExampleOptions.class);
+    ReadRedshiftExampleOptions options = PipelineOptionsFactory
         .fromArgs(args)
         .create()
-        .as(RedshiftExampleOptions.class);
+        .as(ReadRedshiftExampleOptions.class);
     Pipeline pipeline = Pipeline.create(options);
 
-    Redshift.Read<String> readFn = Read.<String>builder()
+    Redshift.Read<String> readFn = Redshift.Read.<String>builder()
         .setS3TempLocationPrefix(options.getS3TempLocationPrefix())
         .setDataSourceConfiguration(DataSourceConfiguration.create(
             options.getRedshiftEndpoint(),
@@ -88,7 +63,7 @@ public class ReadRedshiftExample {
             options.getRedshiftPassword()
         ))
         .setQuery(options.getRedshiftReadQuery())
-        .setRedshiftMarshaller(new MyRedshiftMarshaller())
+        .setRedshiftMarshaller(StringRedshiftMarshaller.create())
         .setCoder(StringUtf8Coder.of())
         .build();
 
@@ -104,19 +79,6 @@ public class ReadRedshiftExample {
     State resultState = pipeline.run().waitUntilFinish();
     if (State.FAILED == resultState || State.UNKNOWN == resultState) {
       System.exit(1);
-    }
-  }
-
-  static class MyRedshiftMarshaller implements RedshiftMarshaller<String> {
-
-    @Override
-    public String unmarshalFromRedshift(String[] value) {
-      return String.join(",", value);
-    }
-
-    @Override
-    public String[] marshalToRedshift(String value) {
-      return value.split(",");
     }
   }
 }
