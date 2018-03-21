@@ -19,46 +19,47 @@ package com.jacobmarble.beam;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult.State;
-import org.apache.beam.sdk.coders.StringUtf8Coder;
-import org.apache.beam.sdk.io.aws.redshift.Redshift;
+import org.apache.beam.sdk.io.Compression;
 import org.apache.beam.sdk.io.aws.redshift.Redshift.DataSourceConfiguration;
+import org.apache.beam.sdk.io.aws.redshift.Unload;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Example of a pipeline that reads from Redshift.
+ * Example of a pipeline that issues the UNLOAD Redshift SQL command.
  */
-public class ReadRedshiftExample {
+public class UnloadRedshiftExample {
 
-  private static final Logger LOG = LoggerFactory.getLogger(ReadRedshiftExample.class);
+  private static final Logger LOG = LoggerFactory.getLogger(UnloadRedshiftExample.class);
 
-  interface ReadRedshiftExampleOptions extends RedshiftExampleOptions {
+  interface UnloadRedshiftExampleOptions extends RedshiftExampleOptions {
 
     @Description("Redshift read query")
     @Default.String("SELECT foo, bar FROM schema.table LIMIT 10")
     String getRedshiftReadQuery();
     void setRedshiftReadQuery(String value);
 
-    @Description("S3 temp location prefix, as in s3://bucket/path/")
-    String getS3TempLocationPrefix();
-    void setS3TempLocationPrefix(String value);
+    @Description("S3 destination")
+    String getS3Destination();
+    void setS3Destination(String value);
   }
 
   public static void main(String[] args) {
-    PipelineOptionsFactory.register(ReadRedshiftExampleOptions.class);
-    ReadRedshiftExampleOptions options = PipelineOptionsFactory
+    PipelineOptionsFactory.register(UnloadRedshiftExampleOptions.class);
+    UnloadRedshiftExampleOptions options = PipelineOptionsFactory
         .fromArgs(args)
         .create()
-        .as(ReadRedshiftExampleOptions.class);
+        .as(UnloadRedshiftExampleOptions.class);
     Pipeline pipeline = Pipeline.create(options);
 
-    Redshift.Read<String> readFn = Redshift.Read.<String>builder()
-        .setS3TempLocationPrefix(options.getS3TempLocationPrefix())
+    Unload unloadFn = Unload.builder()
+        .setDestination(options.getS3Destination())
         .setDataSourceConfiguration(DataSourceConfiguration.create(
             options.getRedshiftEndpoint(),
             options.getRedshiftPort(),
@@ -66,17 +67,18 @@ public class ReadRedshiftExample {
             options.getRedshiftUser(),
             options.getRedshiftPassword()
         ))
-        .setQuery(options.getRedshiftReadQuery())
-        .setRedshiftMarshaller(StringRedshiftMarshaller.create())
-        .setCoder(StringUtf8Coder.of())
+        .setSourceQuery(options.getRedshiftReadQuery())
+        .setDelimiter(',')
+        .setDestinationCompression(Compression.UNCOMPRESSED)
         .build();
 
     pipeline
-        .apply(readFn)
+        .apply(Create.of((Void) null))
+        .apply(ParDo.of(unloadFn))
         .apply(ParDo.of(new DoFn<String, Void>() {
           @ProcessElement
           public void peek(ProcessContext context) {
-            LOG.info("read '{}' from Redshift query", context.element());
+            LOG.info("unloaded to '{}' from Redshift query", context.element());
           }
         }));
 
